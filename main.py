@@ -157,7 +157,7 @@ def run_automation():
                                 time.sleep(random.uniform(1, 2))
                                 
                                 # Type the message
-                                el.fill("🔥 Streak maintenance!")
+                                el.fill("เติมไฟกันจ้า🔥🔥")
                                 time.sleep(random.uniform(1, 2))
                                 page.keyboard.press("Enter")
                                 
