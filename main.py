@@ -91,48 +91,48 @@ def run_automation():
                     try:
                         # 1. Click the Message button or extract URL (Excluding the top header inbox)
                         message_btn_selectors = [
-                            '[data-e2e="message-button"]', # Best one
-                            'main a[href*="/messages?"]',  # Only links with '?' (has user ID)
-                            'main button:has-text("Message")',
-                            'div[role="main"] a[href*="/messages"]'
+                            '[data-e2e="message-button"]', 
+                            'button:has-text("Message")',
+                            'div[role="button"]:has-text("Message")',
+                            'main a[href*="/messages"]'
                         ]
                         
                         found_btn = False
                         for selector in message_btn_selectors:
                             try:
                                 btn = page.locator(selector).first
-                                if btn.count() > 0:
+                                if btn.count() > 0 and btn.is_visible():
                                     href = btn.get_attribute("href")
-                                    # ONLY navigate if it's a specific message link (contains 'u=')
+                                    # If it's a link with a specific ID, navigate directly
                                     if href and "/messages" in href and "u=" in href:
                                         target_url = f"https://www.tiktok.com{href}" if href.startswith("/") else href
                                         logger.info(f"Directly navigating to specific chat: {target_url}")
                                         page.goto(target_url, wait_until="load")
                                         found_btn = True
                                         break
-                                    elif not href: # It's a button, just click it
+                                    else:
+                                        # If it's just a button or a general link, click it
+                                        logger.info(f"Clicking button found via: {selector}")
                                         btn.click()
-                                        logger.info(f"Clicked Message button using: {selector}")
                                         found_btn = True
                                         break
                             except:
                                 continue
                         
                         if not found_btn:
-                            # Nuclear Option: Search ONLY in the main content area
-                            logger.info("Specific buttons not found. Scanning main area for any message link...")
-                            msg_links = page.locator('main a[href*="/messages"]').all()
-                            for link in msg_links:
-                                href = link.get_attribute("href")
-                                if href and "u=" in href:
-                                    logger.info(f"Found specific chat link in scan: {href}")
-                                    page.goto(f"https://www.tiktok.com{href}" if href.startswith("/") else href)
-                                    found_btn = True
-                                    break
+                            # Final attempt: Look for any clickable text "Message" in the main area
+                            logger.info("Specific selectors failed. Searching for any clickable 'Message' text...")
+                            try:
+                                # This looks for the text "Message" inside anything that looks like a button or link
+                                page.locator('main').get_by_text("Message", exact=True).first.click()
+                                logger.info("Clicked 'Message' text successfully")
+                                found_btn = True
+                            except:
+                                pass
 
                         if not found_btn:
                             page.screenshot(path=f"missing_button_{friend}.png")
-                            raise Exception("Could not find SPECIFIC Message button (u= ID missing)")
+                            raise Exception("Could not find Message button or link on profile")
 
                         # 2. Wait for chat input and send
                         time.sleep(random.uniform(8, 12)) # Be more patient
