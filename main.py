@@ -70,10 +70,15 @@ def run_automation():
                 # Navigate to the direct message page
                 profile_url = f"https://www.tiktok.com/@{friend}" if not friend.startswith("http") else friend
                 logger.info(f"Navigating to: {profile_url}")
-                page.goto(profile_url, wait_until="networkidle")
                 
+                # Use a more robust navigation with a longer timeout
+                try:
+                    page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:
+                    logger.warning(f"Initial navigation for {friend} timed out, trying to proceed anyway...")
+
                 # Check if we are logged in
-                if page.url.startswith("https://www.tiktok.com/login"):
+                if "tiktok.com/login" in page.url:
                     logger.error("Cookies expired or invalid. Redirected to login page.")
                     break
 
@@ -84,18 +89,27 @@ def run_automation():
                         time.sleep(random.uniform(5, 10))
                         
                         # Wait for the 'Message' button - Try multiple common selectors
+                        # Based on UI, it's a button next to "Friends"
                         message_btn_selectors = [
-                            '[data-e2e="user-message"]',
                             'button:has-text("Message")',
-                            'div:has-text("Message")'
+                            '[data-e2e="user-message"]',
+                            'div[role="button"]:has-text("Message")',
+                            '#main-content-others_user button:has-text("Message")',
+                            'button[aria-label="Message"]'
                         ]
                         
                         found_btn = False
+                        # Take a screenshot for debugging if it fails in GitHub Actions
+                        # page.screenshot(path=f"debug_{friend}.png") 
+                        
                         for selector in message_btn_selectors:
                             try:
-                                if page.is_visible(selector, timeout=5000):
-                                    page.click(selector)
+                                # Wait a bit for the element to actually be clickable
+                                btn = page.wait_for_selector(selector, timeout=5000, state="visible")
+                                if btn:
+                                    btn.click()
                                     found_btn = True
+                                    logger.info(f"Found and clicked Message button using: {selector}")
                                     break
                             except:
                                 continue
