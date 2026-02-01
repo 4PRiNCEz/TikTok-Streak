@@ -72,13 +72,16 @@ def run_automation():
                 logger.info(f"Navigating to profile: {profile_url}")
                 
                 try:
-                    page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+                    page.goto(profile_url, wait_until="networkidle", timeout=60000)
+                    # Extra wait for dynamic buttons to load
+                    time.sleep(5)
                 except Exception as e:
                     logger.warning(f"Navigation to profile for {friend} timed out, trying to proceed...")
 
                 # Check if we are logged in
                 if "tiktok.com/login" in page.url:
                     logger.error("Cookies expired or invalid. Redirected to login page.")
+                    page.screenshot(path="login_error.png")
                     break
 
                 # Try to send message with retries
@@ -89,14 +92,16 @@ def run_automation():
                             '[data-e2e="message-button"]',
                             'a[href*="/messages"]',
                             'button:has-text("Message")',
-                            'a.link-a11y-focus'
+                            'div[role="button"]:has-text("Message")',
+                            '.link-a11y-focus'
                         ]
                         
                         found_btn = False
+                        # Try standard selectors first
                         for selector in message_btn_selectors:
                             try:
                                 btn = page.locator(selector).first
-                                if btn.is_visible(timeout=5000):
+                                if btn.count() > 0:
                                     # Try to get the href for direct navigation
                                     href = btn.get_attribute("href")
                                     if href and "/messages" in href:
@@ -113,20 +118,33 @@ def run_automation():
                                 continue
                         
                         if not found_btn:
-                            # Try one more thing: search for ANY link containing /messages on the page
+                            # Nuclear Option: Search for any element containing the word "Message"
+                            logger.info("Standard selectors failed. Trying Nuclear Option (text search)...")
                             try:
-                                logger.info("Button not found by selector, searching for any message link...")
-                                msg_links = page.locator('a[href*="/messages"]').all()
-                                if msg_links:
-                                    href = msg_links[0].get_attribute("href")
-                                    target_url = f"https://www.tiktok.com{href}" if href.startswith("/") else href
-                                    logger.info(f"Found message link via search: {target_url}")
-                                    page.goto(target_url, wait_until="domcontentloaded")
+                                # Look for "Message" text in any clickable element
+                                nuclear_btn = page.get_by_role("button", name="Message", exact=False).first
+                                if nuclear_btn.count() > 0:
+                                    nuclear_btn.click()
+                                    logger.info("Clicked Message button via Nuclear Option (Role/Name)")
                                     found_btn = True
+                                else:
+                                    # Last ditch: look for the link pattern again in all <a> tags
+                                    all_links = page.locator('a').all()
+                                    for link in all_links:
+                                        href = link.get_attribute("href")
+                                        if href and "/messages" in href:
+                                            logger.info(f"Found message link in <a> scan: {href}")
+                                            page.goto(f"https://www.tiktok.com{href}" if href.startswith("/") else href)
+                                            found_btn = True
+                                            break
                             except:
                                 pass
 
                         if not found_btn:
+                            # Capture what the bot sees before failing
+                            screenshot_path = f"error_{friend}_attempt_{attempt+1}.png"
+                            page.screenshot(path=screenshot_path)
+                            logger.warning(f"Saved debug screenshot to {screenshot_path}")
                             raise Exception("Could not find Message button or URL on profile")
 
                         # 2. Wait for chat input and send
