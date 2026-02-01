@@ -134,37 +134,41 @@ def run_automation():
                             raise Exception("Could not find 'Message' button")
                         
                         # Wait for the chat to open and the text area to appear
-                        # Based on your high-quality Inspector screenshot:
-                        # The container is [data-e2e="message-input-area"]
-                        # Inside it is a div[contenteditable="true"]
                         chat_input_selectors = [
-                            '[data-e2e="message-input-area"] div[contenteditable="true"]',
+                            '[data-e2e="message-input-area"] [contenteditable="true"]',
+                            '.public-DraftEditor-content',
                             'div[contenteditable="true"]',
                             '[data-e2e="chat-input"]',
-                            'div[role="textbox"]',
-                            '.public-DraftEditor-content' # Common for Draft.js editors which TikTok uses
+                            'div[role="textbox"]'
                         ]
                         
                         found_input = False
+                        logger.info(f"Looking for chat input for {friend}...")
+                        
+                        # First, try to click the general area to trigger the editor
+                        try:
+                            page.locator('[data-e2e="message-input-area"]').first.click()
+                            time.sleep(2)
+                        except:
+                            pass
+
                         for selector in chat_input_selectors:
                             try:
-                                # Wait for the element and ensure it's interactive
+                                # Look for the specific element
                                 el = page.locator(selector).first
-                                el.wait_for(state="visible", timeout=10000)
-                                
-                                # Click to focus first
-                                el.click()
-                                time.sleep(random.uniform(1, 2))
-                                
-                                # Type the message
-                                el.fill("เติมไฟกันจ้า🔥🔥")
-                                time.sleep(random.uniform(1, 2))
-                                page.keyboard.press("Enter")
-                                
-                                found_input = True
-                                logger.info(f"Successfully sent message using: {selector}")
-                                break
-                            except Exception as e:
+                                if el.is_visible(timeout=5000):
+                                    logger.info(f"Found input field with: {selector}")
+                                    el.click()
+                                    time.sleep(1)
+                                    # Use 'type' instead of 'fill' for more reliability on complex editors
+                                    el.type("เติมไฟกันจ้า🔥🔥", delay=100)
+                                    time.sleep(1)
+                                    page.keyboard.press("Enter")
+                                    
+                                    found_input = True
+                                    logger.info(f"Successfully sent message to {friend}")
+                                    break
+                            except:
                                 continue
                         
                         if not found_input:
