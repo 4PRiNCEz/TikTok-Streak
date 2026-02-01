@@ -136,48 +136,54 @@ def run_automation():
                         # Wait for the chat to open and the text area to appear
                         chat_input_selectors = [
                             '[data-e2e="message-input-area"] [contenteditable="true"]',
+                            '[contenteditable="true"]',
                             '.public-DraftEditor-content',
-                            'div[contenteditable="true"]',
-                            '[data-e2e="chat-input"]',
-                            'div[role="textbox"]'
+                            '[role="textbox"]'
                         ]
                         
                         found_input = False
                         logger.info(f"Looking for chat input for {friend}...")
                         
-                        # Fallback: Try using TAB key if clicking/selecting fails
-                        # Often in TikTok chat, pressing TAB 1-3 times from the message list 
-                        # or button will land you in the text box.
-                        for tab_attempt in range(3):
-                            page.keyboard.press("Tab")
-                            time.sleep(0.5)
-
                         for selector in chat_input_selectors:
                             try:
-                                # Look for the specific element
                                 el = page.locator(selector).first
                                 if el.is_visible(timeout=5000):
                                     logger.info(f"Found input field with: {selector}")
+                                    
+                                    # Focus and Click to ensure the cursor is there
+                                    el.focus()
                                     el.click()
                                     time.sleep(1)
-                                    # Type the message
-                                    el.type("เติมไฟกันจ้า🔥🔥", delay=100)
+                                    
+                                    # Clear anything that might be there and type
+                                    page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=150)
                                     time.sleep(1)
+                                    page.keyboard.press("Enter")
+                                    time.sleep(1)
+                                    
+                                    # Failsafe: if the message didn't send, try pressing Enter again
                                     page.keyboard.press("Enter")
                                     
                                     found_input = True
                                     logger.info(f"Successfully sent message to {friend}")
+                                    success_count += 1
                                     break
                             except:
                                 continue
                         
-                        # LAST RESORT: Just try typing and pressing enter if we think we are on the page
                         if not found_input:
-                            logger.info("Input field not found by selector. Trying 'Blind Typing' as last resort...")
-                            page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=100)
+                            # Blind typing attempt if no selector worked
+                            logger.info("Input field not found by selector. Trying focused Blind Typing...")
+                            # Press Tab a few times to try and land in the box
+                            for _ in range(3):
+                                page.keyboard.press("Tab")
+                                time.sleep(0.5)
+                            
+                            page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=150)
                             time.sleep(1)
                             page.keyboard.press("Enter")
-                            # We can't be 100% sure it worked, but it's worth a shot
+                            time.sleep(1)
+                            page.keyboard.press("Enter")
                             success_count += 1 
                             found_input = True
                         
