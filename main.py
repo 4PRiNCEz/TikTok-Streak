@@ -75,64 +75,86 @@ def run_automation():
                     # Use 'load' instead of 'networkidle' for better compatibility
                     page.goto(profile_url, wait_until="load", timeout=60000)
                     time.sleep(5)
+                    
+                    # SUPER DEBUG: What does the bot actually see?
+                    title = page.title()
+                    logger.info(f"Page Title: {title}")
+                    if "Verify" in title or "CAPTCHA" in title or "Cloudflare" in title:
+                        logger.error("BOT BLOCKED: TikTok is showing a Captcha/Verification screen.")
+                        page.screenshot(path=f"blocked_{friend}.png")
+                    
+                    # Save HTML for inspection
+                    with open(f"source_{friend}.html", "w", encoding="utf-8") as f:
+                        f.write(page.content())
+                        
                 except Exception as e:
-                    logger.error(f"Profile for {friend} failed to load. Skipping to next friend.")
+                    logger.error(f"Profile for {friend} failed to load. Skipping.")
                     failed_friends.append(friend)
                     continue
 
                 # Check if we are logged in
-                if "tiktok.com/login" in page.url:
-                    logger.error("Cookies expired or invalid. Redirected to login page.")
+                if "tiktok.com/login" in page.url or "Login" in page.title():
+                    logger.error("Cookies expired or invalid. Bot is logged out.")
                     page.screenshot(path="login_error.png")
                     break
 
                 # Try to send message with retries
                 for attempt in range(3):
                     try:
-                        # 1. Click the Message button or extract URL (Excluding the top header inbox)
-                        message_btn_selectors = [
-                            '[data-e2e="message-button"]', 
-                            'button:has-text("Message")',
-                            'div[role="button"]:has-text("Message")',
-                            'main a[href*="/messages"]'
-                        ]
-                        
                         found_btn = False
-                        for selector in message_btn_selectors:
-                            try:
-                                btn = page.locator(selector).first
-                                if btn.count() > 0 and btn.is_visible():
-                                    href = btn.get_attribute("href")
-                                    # If it's a link with a specific ID, navigate directly
-                                    if href and "/messages" in href and "u=" in href:
-                                        target_url = f"https://www.tiktok.com{href}" if href.startswith("/") else href
-                                        logger.info(f"Directly navigating to specific chat: {target_url}")
-                                        page.goto(target_url, wait_until="load")
-                                        found_btn = True
-                                        break
-                                    else:
-                                        # If it's just a button or a general link, click it
+                        
+                        # NEW STRATEGY: Try to find the User ID in the page source data
+                        logger.info("Attempting to extract User ID from page data...")
+                        try:
+                            # TikTok stores user data in a script tag. We can try to find the ID there.
+                            page_content = page.content()
+                            import re
+                            # Look for "userId":"12345..." or similar patterns
+                            user_id_match = re.search(r'"userId":"(\d+)"', page_content)
+                            if not user_id_match:
+                                user_id_match = re.search(r'"id":"(\d+)"', page_content)
+                                
+                            if user_id_match:
+                                uid = user_id_match.group(1)
+                                target_url = f"https://www.tiktok.com/messages?lang=en&u={uid}"
+                                logger.info(f"SUCCESS: Extracted User ID {uid}. Jumping to: {target_url}")
+                                page.goto(target_url, wait_until="load")
+                                found_btn = True
+                        except Exception as uid_err:
+                            logger.warning(f"User ID extraction failed: {str(uid_err)}")
+
+                        if not found_btn:
+                            # 1. Standard Selectors
+                            message_btn_selectors = [
+                                '[data-e2e="message-button"]', 
+                                'button:has-text("Message")',
+                                'div[role="button"]:has-text("Message")',
+                                'main a[href*="/messages"]'
+                            ]
+                            
+                            for selector in message_btn_selectors:
+                                try:
+                                    btn = page.locator(selector).first
+                                    if btn.count() > 0 and btn.is_visible():
                                         logger.info(f"Clicking button found via: {selector}")
                                         btn.click()
                                         found_btn = True
                                         break
-                            except:
-                                continue
+                                except:
+                                    continue
                         
                         if not found_btn:
-                            # Final attempt: Look for any clickable text "Message" in the main area
-                            logger.info("Specific selectors failed. Searching for any clickable 'Message' text...")
+                            # Nuclear Option: Click by text
                             try:
-                                # This looks for the text "Message" inside anything that looks like a button or link
-                                page.locator('main').get_by_text("Message", exact=True).first.click()
-                                logger.info("Clicked 'Message' text successfully")
+                                logger.info("Trying to click text 'Message'...")
+                                page.get_by_text("Message", exact=True).first.click()
                                 found_btn = True
                             except:
                                 pass
 
                         if not found_btn:
-                            page.screenshot(path=f"missing_button_{friend}.png")
-                            raise Exception("Could not find Message button or link on profile")
+                            page.screenshot(path=f"missing_button_{friend}_at_{attempt+1}.png")
+                            raise Exception("Could not find Message button, link, or User ID")
 
                         # 2. Wait for chat input and send
                         time.sleep(random.uniform(8, 12)) # Be more patient
