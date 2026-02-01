@@ -89,30 +89,46 @@ def run_automation():
                         time.sleep(random.uniform(5, 10))
                         
                         # Wait for the 'Message' button - Try multiple common selectors
-                        # Based on UI, it's a button next to "Friends"
+                        # Based on your high-quality Inspector screenshot:
+                        # The button is a 'button' with data-e2e="message-button" 
+                        # OR it's an 'a' link wrapping that button
                         message_btn_selectors = [
+                            '[data-e2e="message-button"]',
+                            'a[href*="/messages"]',
                             'button:has-text("Message")',
                             '[data-e2e="user-message"]',
-                            'div[role="button"]:has-text("Message")',
-                            '#main-content-others_user button:has-text("Message")',
-                            'button[aria-label="Message"]'
+                            'a.link-a11y-focus'
                         ]
                         
                         found_btn = False
-                        # Take a screenshot for debugging if it fails in GitHub Actions
-                        # page.screenshot(path=f"debug_{friend}.png") 
-                        
                         for selector in message_btn_selectors:
                             try:
-                                # Wait a bit for the element to actually be clickable
-                                btn = page.wait_for_selector(selector, timeout=5000, state="visible")
-                                if btn:
+                                # Try to find the element
+                                btn = page.locator(selector).first
+                                if btn.is_visible(timeout=5000):
                                     btn.click()
                                     found_btn = True
-                                    logger.info(f"Found and clicked Message button using: {selector}")
+                                    logger.info(f"Successfully clicked Message button using: {selector}")
                                     break
                             except:
                                 continue
+                        
+                        # Fallback: If button clicking fails, try navigating directly to the message URL
+                        if not found_btn:
+                            logger.warning(f"Could not click button for {friend}, trying direct message URL fallback...")
+                            # The screenshot shows the link starts with /messages?lang=en...
+                            # We can try to find the link on the page and go to its href
+                            try:
+                                msg_link = page.locator('a[href*="/messages"]').first
+                                href = msg_link.get_attribute("href")
+                                if href:
+                                    page.goto(f"https://www.tiktok.com{href}" if href.startswith("/") else href)
+                                    found_btn = True
+                            except:
+                                pass
+
+                        if not found_btn:
+                            raise Exception("Could not find 'Message' button or direct link")
                         
                         if not found_btn:
                             raise Exception("Could not find 'Message' button")
