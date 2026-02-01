@@ -67,15 +67,14 @@ def run_automation():
         for friend in friends:
             logger.info(f"Processing streak for: {friend}")
             try:
-                # Navigate to the direct message page
+                # Navigate to the profile page
                 profile_url = f"https://www.tiktok.com/@{friend}" if not friend.startswith("http") else friend
-                logger.info(f"Navigating to: {profile_url}")
+                logger.info(f"Navigating to profile: {profile_url}")
                 
-                # Use a more robust navigation with a longer timeout
                 try:
                     page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as e:
-                    logger.warning(f"Initial navigation for {friend} timed out, trying to proceed anyway...")
+                    logger.warning(f"Navigation to profile for {friend} timed out, trying to proceed...")
 
                 # Check if we are logged in
                 if "tiktok.com/login" in page.url:
@@ -85,121 +84,95 @@ def run_automation():
                 # Try to send message with retries
                 for attempt in range(3):
                     try:
-                        # Random delay before action to look human
-                        time.sleep(random.uniform(5, 10))
-                        
-                        # Wait for the 'Message' button - Try multiple common selectors
-                        # Based on your high-quality Inspector screenshot:
-                        # The button is a 'button' with data-e2e="message-button" 
-                        # OR it's an 'a' link wrapping that button
+                        # 1. Click the Message button on profile
                         message_btn_selectors = [
                             '[data-e2e="message-button"]',
                             'a[href*="/messages"]',
                             'button:has-text("Message")',
-                            '[data-e2e="user-message"]',
                             'a.link-a11y-focus'
                         ]
                         
                         found_btn = False
                         for selector in message_btn_selectors:
                             try:
-                                # Try to find the element
                                 btn = page.locator(selector).first
                                 if btn.is_visible(timeout=5000):
                                     btn.click()
                                     found_btn = True
-                                    logger.info(f"Successfully clicked Message button using: {selector}")
+                                    logger.info(f"Clicked Message button using: {selector}")
                                     break
                             except:
                                 continue
                         
-                        # Fallback: If button clicking fails, try navigating directly to the message URL
                         if not found_btn:
-                            logger.warning(f"Could not click button for {friend}, trying direct message URL fallback...")
-                            # The screenshot shows the link starts with /messages?lang=en...
-                            # We can try to find the link on the page and go to its href
-                            try:
-                                msg_link = page.locator('a[href*="/messages"]').first
-                                href = msg_link.get_attribute("href")
-                                if href:
-                                    page.goto(f"https://www.tiktok.com{href}" if href.startswith("/") else href)
-                                    found_btn = True
-                            except:
-                                pass
+                            raise Exception("Could not find Message button on profile")
 
-                        if not found_btn:
-                            raise Exception("Could not find 'Message' button or direct link")
+                        # 2. Wait for chat input and send
+                        # Give it a moment to load the chat page
+                        time.sleep(random.uniform(5, 8))
                         
-                        if not found_btn:
-                            raise Exception("Could not find 'Message' button")
-                        
-                        # Wait for the chat to open and the text area to appear
                         chat_input_selectors = [
                             '[data-e2e="message-input-area"] [contenteditable="true"]',
                             '[contenteditable="true"]',
-                            '.public-DraftEditor-content',
-                            '[role="textbox"]'
+                            '.public-DraftEditor-content'
                         ]
                         
                         found_input = False
-                        logger.info(f"Looking for chat input for {friend}...")
-                        
                         for selector in chat_input_selectors:
                             try:
                                 el = page.locator(selector).first
-                                if el.is_visible(timeout=5000):
+                                if el.is_visible(timeout=10000):
                                     logger.info(f"Found input field with: {selector}")
-                                    
-                                    # Focus and Click to ensure the cursor is there
                                     el.focus()
                                     el.click()
-                                    time.sleep(1)
+                                    time.sleep(2)
                                     
-                                    # Clear anything that might be there and type
+                                    # Type the message
                                     page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=150)
-                                    time.sleep(1)
-                                    page.keyboard.press("Enter")
-                                    time.sleep(1)
+                                    time.sleep(2)
                                     
-                                    # Failsafe: if the message didn't send, try pressing Enter again
-                                    page.keyboard.press("Enter")
+                                    # TikTok usually has a send icon (SVG) that becomes clickable after typing
+                                    # We try to click anything inside the input area that looks like a send button
+                                    send_btn_selectors = [
+                                        '[data-e2e="chat-send"]',
+                                        'div[role="button"] svg',
+                                        'button[aria-label="Send"]',
+                                        'svg path[d*="M12"]' # Common path for send icons
+                                    ]
                                     
-                                    found_input = True
-                                    logger.info(f"Successfully sent message to {friend}")
-                                    success_count += 1
+                                    for s_selector in send_btn_selectors:
+                                        try:
+                                            s_btn = page.locator(s_selector).last
+                                            if s_btn.is_visible(timeout=3000):
+                                                s_btn.click()
+                                                logger.info(f"Clicked send icon using: {s_selector}")
+                                                found_input = True
+                                                break
+                                        except:
+                                            continue
+                                    
+                                    if not found_input:
+                                        logger.info("Send icon not found, trying Enter key...")
+                                        page.keyboard.press("Enter")
+                                        found_input = True
+                                    
                                     break
                             except:
                                 continue
                         
-                        if not found_input:
-                            # Blind typing attempt if no selector worked
-                            logger.info("Input field not found by selector. Trying focused Blind Typing...")
-                            # Press Tab a few times to try and land in the box
-                            for _ in range(3):
-                                page.keyboard.press("Tab")
-                                time.sleep(0.5)
-                            
-                            page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=150)
-                            time.sleep(1)
-                            page.keyboard.press("Enter")
-                            time.sleep(1)
-                            page.keyboard.press("Enter")
-                            success_count += 1 
-                            found_input = True
-                        
-                        if not found_input:
-                            raise Exception("Could not find chat input field")
-                        time.sleep(random.uniform(1, 2))
-                        page.keyboard.press("Enter")
-                        
-                        logger.info(f"Successfully sent streak message to {friend}")
-                        success_count += 1
-                        break
+                        if found_input:
+                            logger.info(f"Successfully sent message to {friend}")
+                            success_count += 1
+                            break
+                        else:
+                            logger.warning(f"Attempt {attempt+1} failed. Reloading...")
+                            page.reload()
+                            time.sleep(5)
                     except Exception as e:
                         if attempt == 2: raise e
-                        logger.warning(f"Attempt {attempt+1} failed for {friend}. Retrying...")
+                        logger.warning(f"Attempt {attempt+1} failed: {str(e)}")
                         page.reload()
-                        time.sleep(random.uniform(10, 15))
+                        time.sleep(5)
 
                 # Longer randomized delay between different friends (15-30 seconds)
                 # This is crucial for "All-In" with 42 friends
