@@ -50,9 +50,10 @@ def run_automation():
 
     with sync_playwright() as p:
         # Launch browser
-        browser = p.chromium.launch(headless=True) # Run headless for GitHub Actions
+        browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={'width': 1280, 'height': 800}
         )
         
         # Add cookies to context
@@ -82,17 +83,45 @@ def run_automation():
                         # Random delay before action to look human
                         time.sleep(random.uniform(5, 10))
                         
-                        # Wait for the 'Message' button
-                        message_btn_selector = '[data-e2e="user-message"]'
-                        page.wait_for_selector(message_btn_selector, timeout=15000)
-                        page.click(message_btn_selector)
+                        # Wait for the 'Message' button - Try multiple common selectors
+                        message_btn_selectors = [
+                            '[data-e2e="user-message"]',
+                            'button:has-text("Message")',
+                            'div:has-text("Message")'
+                        ]
                         
-                        # Wait for the chat to open
-                        page.wait_for_selector('div[contenteditable="true"]', timeout=15000)
+                        found_btn = False
+                        for selector in message_btn_selectors:
+                            try:
+                                if page.is_visible(selector, timeout=5000):
+                                    page.click(selector)
+                                    found_btn = True
+                                    break
+                            except:
+                                continue
                         
-                        # Type message with a slight delay
-                        time.sleep(random.uniform(2, 4))
-                        page.fill('div[contenteditable="true"]', "🔥 Streak maintenance!")
+                        if not found_btn:
+                            raise Exception("Could not find 'Message' button")
+                        
+                        # Wait for the chat to open and the text area to appear
+                        chat_input_selectors = [
+                            'div[contenteditable="true"]',
+                            'textarea[placeholder*="message"]',
+                            '[data-e2e="chat-input"]'
+                        ]
+                        
+                        found_input = False
+                        for selector in chat_input_selectors:
+                            try:
+                                page.wait_for_selector(selector, timeout=10000)
+                                page.fill(selector, "🔥 Streak maintenance!")
+                                found_input = True
+                                break
+                            except:
+                                continue
+                        
+                        if not found_input:
+                            raise Exception("Could not find chat input field")
                         time.sleep(random.uniform(1, 2))
                         page.keyboard.press("Enter")
                         
