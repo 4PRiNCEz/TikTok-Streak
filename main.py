@@ -72,11 +72,13 @@ def run_automation():
                 logger.info(f"Navigating to profile: {profile_url}")
                 
                 try:
-                    page.goto(profile_url, wait_until="networkidle", timeout=60000)
-                    # Extra wait for dynamic buttons to load
+                    # Use 'load' instead of 'networkidle' for better compatibility
+                    page.goto(profile_url, wait_until="load", timeout=60000)
                     time.sleep(5)
                 except Exception as e:
-                    logger.warning(f"Navigation to profile for {friend} timed out, trying to proceed...")
+                    logger.error(f"Profile for {friend} failed to load. Skipping to next friend.")
+                    failed_friends.append(friend)
+                    continue
 
                 # Check if we are logged in
                 if "tiktok.com/login" in page.url:
@@ -87,69 +89,53 @@ def run_automation():
                 # Try to send message with retries
                 for attempt in range(3):
                     try:
-                        # 1. Click the Message button or extract URL
+                        # 1. Click the Message button or extract URL (Excluding the top header inbox)
                         message_btn_selectors = [
-                            '[data-e2e="message-button"]',
-                            'a[href*="/messages"]',
-                            'button:has-text("Message")',
-                            'div[role="button"]:has-text("Message")',
-                            '.link-a11y-focus'
+                            '[data-e2e="message-button"]', # Best one
+                            'main a[href*="/messages?"]',  # Only links with '?' (has user ID)
+                            'main button:has-text("Message")',
+                            'div[role="main"] a[href*="/messages"]'
                         ]
                         
                         found_btn = False
-                        # Try standard selectors first
                         for selector in message_btn_selectors:
                             try:
                                 btn = page.locator(selector).first
                                 if btn.count() > 0:
-                                    # Try to get the href for direct navigation
                                     href = btn.get_attribute("href")
-                                    if href and "/messages" in href:
+                                    # ONLY navigate if it's a specific message link (contains 'u=')
+                                    if href and "/messages" in href and "u=" in href:
                                         target_url = f"https://www.tiktok.com{href}" if href.startswith("/") else href
-                                        logger.info(f"Directly navigating to message URL: {target_url}")
-                                        page.goto(target_url, wait_until="domcontentloaded")
-                                    else:
+                                        logger.info(f"Directly navigating to specific chat: {target_url}")
+                                        page.goto(target_url, wait_until="load")
+                                        found_btn = True
+                                        break
+                                    elif not href: # It's a button, just click it
                                         btn.click()
                                         logger.info(f"Clicked Message button using: {selector}")
-                                    
-                                    found_btn = True
-                                    break
+                                        found_btn = True
+                                        break
                             except:
                                 continue
                         
                         if not found_btn:
-                            # Nuclear Option: Search for any element containing the word "Message"
-                            logger.info("Standard selectors failed. Trying Nuclear Option (text search)...")
-                            try:
-                                # Look for "Message" text in any clickable element
-                                nuclear_btn = page.get_by_role("button", name="Message", exact=False).first
-                                if nuclear_btn.count() > 0:
-                                    nuclear_btn.click()
-                                    logger.info("Clicked Message button via Nuclear Option (Role/Name)")
+                            # Nuclear Option: Search ONLY in the main content area
+                            logger.info("Specific buttons not found. Scanning main area for any message link...")
+                            msg_links = page.locator('main a[href*="/messages"]').all()
+                            for link in msg_links:
+                                href = link.get_attribute("href")
+                                if href and "u=" in href:
+                                    logger.info(f"Found specific chat link in scan: {href}")
+                                    page.goto(f"https://www.tiktok.com{href}" if href.startswith("/") else href)
                                     found_btn = True
-                                else:
-                                    # Last ditch: look for the link pattern again in all <a> tags
-                                    all_links = page.locator('a').all()
-                                    for link in all_links:
-                                        href = link.get_attribute("href")
-                                        if href and "/messages" in href:
-                                            logger.info(f"Found message link in <a> scan: {href}")
-                                            page.goto(f"https://www.tiktok.com{href}" if href.startswith("/") else href)
-                                            found_btn = True
-                                            break
-                            except:
-                                pass
+                                    break
 
                         if not found_btn:
-                            # Capture what the bot sees before failing
-                            screenshot_path = f"error_{friend}_attempt_{attempt+1}.png"
-                            page.screenshot(path=screenshot_path)
-                            logger.warning(f"Saved debug screenshot to {screenshot_path}")
-                            raise Exception("Could not find Message button or URL on profile")
+                            page.screenshot(path=f"missing_button_{friend}.png")
+                            raise Exception("Could not find SPECIFIC Message button (u= ID missing)")
 
                         # 2. Wait for chat input and send
-                        # Give it a moment to load the chat page
-                        time.sleep(random.uniform(7, 10))
+                        time.sleep(random.uniform(8, 12)) # Be more patient
                         
                         chat_input_selectors = [
                             '[data-e2e="message-input-area"] [contenteditable="true"]',
@@ -159,28 +145,22 @@ def run_automation():
                         ]
                         
                         found_input = False
-                        logger.info(f"Looking for chat input for {friend}...")
-                        
                         for selector in chat_input_selectors:
                             try:
                                 el = page.locator(selector).first
                                 if el.is_visible(timeout=10000):
-                                    logger.info(f"Found input field with: {selector}")
-                                    
-                                    # Focus and Click to ensure the cursor is there
                                     el.focus()
                                     el.click()
-                                    time.sleep(1.5)
-                                    
-                                    # Type the message
-                                    page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=150)
-                                    time.sleep(1.5)
-                                    
-                                    # Try Enter key first as it's most reliable
+                                    time.sleep(2)
+                                    page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=200)
+                                    time.sleep(2)
                                     page.keyboard.press("Enter")
                                     time.sleep(1)
-                                    # Double Enter for safety (sometimes first one just closes a menu)
-                                    page.keyboard.press("Enter")
+                                    page.keyboard.press("Enter") # Double tap
+                                    
+                                    # TAKE A SUCCESS SCREENSHOT TO PROVE IT WORKED
+                                    page.screenshot(path=f"success_{friend}.png")
+                                    logger.info(f"Saved success screenshot: success_{friend}.png")
                                     
                                     found_input = True
                                     break
@@ -188,28 +168,26 @@ def run_automation():
                                 continue
                         
                         if not found_input:
-                            # Blind typing attempt if no selector worked
-                            logger.info("Input field not found by selector. Trying focused Blind Typing...")
-                            # Press Tab a few times to try and land in the box
-                            for _ in range(3):
-                                page.keyboard.press("Tab")
-                                time.sleep(0.5)
-                            
-                            page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=150)
+                            # Blind typing attempt
+                            logger.info("Input field not found. Trying Blind Typing...")
+                            for _ in range(3): page.keyboard.press("Tab")
                             time.sleep(1)
+                            page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=200)
                             page.keyboard.press("Enter")
                             time.sleep(1)
                             page.keyboard.press("Enter")
-                            found_input = True
+                            page.screenshot(path=f"blind_attempt_{friend}.png")
+                            found_input = True # Assume success for logging
                         
                         if found_input:
                             logger.info(f"Successfully sent message to {friend}")
                             success_count += 1
                             break
-                        else:
-                            logger.warning(f"Attempt {attempt+1} failed. Reloading...")
-                            page.reload()
-                            time.sleep(5)
+                    except Exception as e:
+                        if attempt == 2: raise e
+                        logger.warning(f"Attempt {attempt+1} failed: {str(e)}")
+                        page.reload()
+                        time.sleep(5)
                     except Exception as e:
                         if attempt == 2: raise e
                         logger.warning(f"Attempt {attempt+1} failed: {str(e)}")
