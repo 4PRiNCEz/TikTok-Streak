@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import random
 import logging
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from dotenv import load_dotenv
@@ -66,37 +67,33 @@ def run_automation():
             logger.info(f"Processing streak for: {friend}")
             try:
                 # Navigate to the direct message page
-                # We can try to search for the friend or go to their profile then message
-                # Method 1: Search for friend in messages
-                page.goto("https://www.tiktok.com/messages", wait_until="networkidle")
+                profile_url = f"https://www.tiktok.com/@{friend}" if not friend.startswith("http") else friend
+                logger.info(f"Navigating to: {profile_url}")
+                page.goto(profile_url, wait_until="networkidle")
                 
-                # Check if we are logged in (look for a common element)
+                # Check if we are logged in
                 if page.url.startswith("https://www.tiktok.com/login"):
                     logger.error("Cookies expired or invalid. Redirected to login page.")
                     break
 
-                # Wait for the message list to load
-                page.wait_for_selector('[data-e2e="message-list"]', timeout=10000)
-                
-                # Search for the friend
-                # This part depends on TikTok's UI which can change. 
-                # A safer way is to go to their profile and click 'Message'
-                profile_url = f"https://www.tiktok.com/@{friend}" if not friend.startswith("http") else friend
-                page.goto(profile_url, wait_until="networkidle")
-                
                 # Try to send message with retries
                 for attempt in range(3):
                     try:
+                        # Random delay before action to look human
+                        time.sleep(random.uniform(5, 10))
+                        
                         # Wait for the 'Message' button
                         message_btn_selector = '[data-e2e="user-message"]'
-                        page.wait_for_selector(message_btn_selector, timeout=10000)
+                        page.wait_for_selector(message_btn_selector, timeout=15000)
                         page.click(message_btn_selector)
                         
                         # Wait for the chat to open
-                        page.wait_for_selector('div[contenteditable="true"]', timeout=10000)
+                        page.wait_for_selector('div[contenteditable="true"]', timeout=15000)
                         
-                        # Type a message
+                        # Type message with a slight delay
+                        time.sleep(random.uniform(2, 4))
                         page.fill('div[contenteditable="true"]', "🔥 Streak maintenance!")
+                        time.sleep(random.uniform(1, 2))
                         page.keyboard.press("Enter")
                         
                         logger.info(f"Successfully sent streak message to {friend}")
@@ -106,8 +103,13 @@ def run_automation():
                         if attempt == 2: raise e
                         logger.warning(f"Attempt {attempt+1} failed for {friend}. Retrying...")
                         page.reload()
-                        time.sleep(5)
-                time.sleep(2) # Avoid spam detection
+                        time.sleep(random.uniform(10, 15))
+
+                # Longer randomized delay between different friends (15-30 seconds)
+                # This is crucial for "All-In" with 42 friends
+                wait_time = random.uniform(15, 30)
+                logger.info(f"Waiting {wait_time:.2f} seconds before next friend...")
+                time.sleep(wait_time)
 
             except PlaywrightTimeoutError:
                 logger.error(f"Timeout while processing {friend}. The UI might have changed or the user was not found.")
