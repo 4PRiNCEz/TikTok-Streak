@@ -76,16 +76,14 @@ def run_automation():
                     page.goto(profile_url, wait_until="load", timeout=60000)
                     time.sleep(5)
                     
-                    # SUPER DEBUG: What does the bot actually see?
+                    # SUPER DEBUG: Only log title and check for blocks
                     title = page.title()
                     logger.info(f"Page Title: {title}")
                     if "Verify" in title or "CAPTCHA" in title or "Cloudflare" in title:
                         logger.error("BOT BLOCKED: TikTok is showing a Captcha/Verification screen.")
                         page.screenshot(path=f"blocked_{friend}.png")
                     
-                    # Save HTML for inspection
-                    with open(f"source_{friend}.html", "w", encoding="utf-8") as f:
-                        f.write(page.content())
+                    # (HTML saving removed for production)
                         
                 except Exception as e:
                     logger.error(f"Profile for {friend} failed to load. Skipping.")
@@ -179,10 +177,6 @@ def run_automation():
                                     page.keyboard.press("Enter")
                                     time.sleep(1)
                                     page.keyboard.press("Enter") # Double tap
-                                    
-                                    # TAKE A SUCCESS SCREENSHOT TO PROVE IT WORKED
-                                    page.screenshot(path=f"success_{friend}.png")
-                                    logger.info(f"Saved success screenshot: success_{friend}.png")
                                     
                                     found_input = True
                                     break
