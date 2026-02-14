@@ -188,7 +188,7 @@ def run_automation():
                             logger.info("Input field not found. Trying Blind Typing...")
                             for _ in range(3): page.keyboard.press("Tab")
                             time.sleep(1)
-                            page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=200)
+                            page.keyboard.type("🔥🔥จ้าไฟกันเติม", delay=200)
                             page.keyboard.press("Enter")
                             time.sleep(1)
                             page.keyboard.press("Enter")
