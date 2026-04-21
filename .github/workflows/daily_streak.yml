@@ -2,8 +2,8 @@ name: Daily TikTok Streak Maintenance
 
 on:
   schedule:
-    # Runs at 23:00 UTC (06:00 GMT+7)
-    - cron: '0 23 * * *'
+    # Runs at 15:00 UTC (22:00 GMT+7)
+    - cron: '0 15 * * *'
   workflow_dispatch:
     # Allows manual trigger for testing
 
