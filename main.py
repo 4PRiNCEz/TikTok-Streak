@@ -68,7 +68,8 @@ def run_automation():
             logger.info(f"Processing streak for: {friend}")
             try:
                 # Navigate to the profile page
-                profile_url = f"https://www.tiktok.com/@{friend}" if not friend.startswith("http") else friend
+                clean_friend = friend.lstrip('@') if not friend.startswith("http") else friend
+                profile_url = f"https://www.tiktok.com/@{clean_friend}" if not clean_friend.startswith("http") else clean_friend
                 logger.info(f"Navigating to profile: {profile_url}")
                 
                 try:
@@ -91,6 +92,10 @@ def run_automation():
                         page.screenshot(path=f"not_found_{friend}.png")
                         failed_friends.append(friend)
                         continue
+                except Exception as e:
+                    logger.error(f"Profile for {friend} failed to load: {str(e)}")
+                    failed_friends.append(friend)
+                    continue
 
                 # Check if we are logged in
                 if "tiktok.com/login" in page.url or "Login" in page.title():
