@@ -34,18 +34,18 @@ def run_automation():
     # COOKIES_JSON should be the content of the cookies file as a string
     cookies_str = os.getenv("TIKTOK_COOKIES")
     
+    # [NEW] Fallback to cookies.json if env var is missing (helpful for local testing)
+    if not cookies_str and os.path.exists("cookies.json"):
+        logger.info("TIKTOK_COOKIES env var not found. Loading from cookies.json...")
+        try:
+            with open("cookies.json", "r") as f:
+                cookies = json.load(f)
+                cookies_str = json.dumps(cookies)
+        except Exception as e:
+            logger.error(f"Failed to read cookies.json: {str(e)}")
+
     if not cookies_str:
-        logger.error("TIKTOK_COOKIES environment variable is missing!")
-        return
-
-    if not friends:
-        logger.warning("FRIENDS_LIST is empty. No streaks to maintain.")
-        return
-
-    try:
-        cookies = json.loads(cookies_str)
-    except json.JSONDecodeError:
-        logger.error("Failed to parse TIKTOK_COOKIES. Ensure it is a valid JSON string.")
+        logger.error("TIKTOK_COOKIES is missing (check your GitHub Secrets or cookies.json)!")
         return
 
     with sync_playwright() as p:
@@ -79,16 +79,18 @@ def run_automation():
                     # SUPER DEBUG: Only log title and check for blocks
                     title = page.title()
                     logger.info(f"Page Title: {title}")
+                    # [NEW] Check for 'Not Found' or blocks
                     if "Verify" in title or "CAPTCHA" in title or "Cloudflare" in title:
-                        logger.error("BOT BLOCKED: TikTok is showing a Captcha/Verification screen.")
+                        logger.error(f"BOT BLOCKED: TikTok is showing a Captcha/Verification screen for {friend}.")
                         page.screenshot(path=f"blocked_{friend}.png")
+                        failed_friends.append(friend)
+                        continue
                     
-                    # (HTML saving removed for production)
-                        
-                except Exception as e:
-                    logger.error(f"Profile for {friend} failed to load. Skipping.")
-                    failed_friends.append(friend)
-                    continue
+                    if "Couldn't find this account" in title or "not found" in title.lower():
+                        logger.error(f"PROFILE NOT FOUND: TikTok says the account for '{friend}' does not exist.")
+                        page.screenshot(path=f"not_found_{friend}.png")
+                        failed_friends.append(friend)
+                        continue
 
                 # Check if we are logged in
                 if "tiktok.com/login" in page.url or "Login" in page.title():
@@ -159,7 +161,10 @@ def run_automation():
                         today_str = time.strftime("%Y-%m-%d")
                         
                         try:
+                            # Wait for chat message list up to 10 seconds
                             page.wait_for_selector('[data-e2e="chat-message-list"]', timeout=10000)
+                            
+                            # b. Run page.evaluate() in JavaScript
                             already_sent_today = page.evaluate("""(today_str) => {
                                 const messages = document.querySelectorAll('[data-e2e="message-item"]');
                                 const outgoingMessages = Array.from(messages).filter(msg => {
@@ -178,6 +183,8 @@ def run_automation():
                                 const timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
                                 return timeText.includes("Today") || timeText.startsWith(today_str);
                             }""", today_str)
+                        except PlaywrightTimeoutError:
+                            logger.warning(f"History check timed out for {friend} - the chat list did not load in time. Proceeding to send anyway.")
                         except Exception as e:
                             logger.warning(f"Failed to check chat history (fail-open): {str(e)}")
                             
