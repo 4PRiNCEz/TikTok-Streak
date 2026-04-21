@@ -39,13 +39,18 @@ def run_automation():
         logger.info("TIKTOK_COOKIES env var not found. Loading from cookies.json...")
         try:
             with open("cookies.json", "r") as f:
-                cookies = json.load(f)
-                cookies_str = json.dumps(cookies)
+                cookies_str = f.read().strip()
         except Exception as e:
             logger.error(f"Failed to read cookies.json: {str(e)}")
 
     if not cookies_str:
         logger.error("TIKTOK_COOKIES is missing (check your GitHub Secrets or cookies.json)!")
+        return
+
+    try:
+        cookies = json.loads(cookies_str)
+    except json.JSONDecodeError:
+        logger.error("Failed to parse cookies. Ensure it is a valid JSON string.")
         return
 
     with sync_playwright() as p:
