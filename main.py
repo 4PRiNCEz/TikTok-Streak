@@ -223,25 +223,34 @@ def run_automation():
                                     
                                     if (outgoingMessages.length > 0) {
                                         const lastMsg = outgoingMessages[outgoingMessages.length - 1];
-                                        const text = lastMsg.innerText || '';
-                                        if (text.includes('Today') || text.includes(today_str)) return true;
                                         
-                                        const timeEl = lastMsg.querySelector('time');
+                                        // Look for a time element inside the message
+                                        const timeEl = lastMsg.querySelector('time, [class*="time"], [class*="Time"]');
+                                        let timeText = "";
+                                        let innerText = "";
+                                        
                                         if (timeEl) {
-                                            const timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
-                                            if (timeText.includes('Today') || timeText.startsWith(today_str)) return true;
+                                            timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
+                                            innerText = (timeEl.innerText || '').trim();
+                                        } else if (lastMsg.previousElementSibling) {
+                                            // TikTok sometimes puts the timestamp in a divider above the message
+                                            const prevText = (lastMsg.previousElementSibling.innerText || '').trim();
+                                            if (prevText.length < 25 && /\d/.test(prevText)) {
+                                                timeText = prevText;
+                                                innerText = prevText;
+                                            }
                                         }
                                         
-                                        if (lastMsg.parentElement && (lastMsg.parentElement.innerText.includes('Today') || lastMsg.parentElement.innerText.includes(today_str))) {
-                                            return true;
+                                        if (timeText || innerText) {
+                                            // Check 1: Explicit 'Today' or exact YYYY-MM-DD
+                                            if (timeText.toLowerCase().includes('today') || timeText.includes(today_str)) return true;
+                                            
+                                            // Check 2: If the text is JUST a time (e.g., "10:30 AM", "14:20"), TikTok Web means it is from Today.
+                                            // Older messages show "Yesterday 10:30 PM" or "11/04 14:20"
+                                            const timeRegex = /^\\d{1,2}:\\d{2}(?:\\s?[AaPp][Mm])?$/;
+                                            if (timeRegex.test(innerText)) return true;
                                         }
                                     }
-                                }
-                                
-                                // 2. Fallback: Check if the visible text on the page indicates we sent our streak today
-                                const bodyText = document.body.innerText;
-                                if (bodyText.includes("เติมไฟกันจ้า") && (bodyText.includes("Today") || bodyText.includes("today") || bodyText.includes(today_str))) {
-                                    return true;
                                 }
                                 
                                 return false;
