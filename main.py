@@ -215,45 +215,58 @@ def run_automation():
 
                             # Evaluate JavaScript to inspect chat history robustly
                             already_sent_today = page.evaluate("""(today_str) => {
-                                // 1. Find all potential message containers
-                                const possibleMessages = Array.from(document.querySelectorAll('[data-e2e="message-item"], div[class*="MessageItem"], div[class*="message-item"], div[class*="chat-message"]'));
-                                
-                                if (possibleMessages.length === 0) return false;
+                                // 1. Find the chat scroll area
+                                const input = document.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
+                                if (!input) return false;
+                                const chatArea = input.closest('div[class*="Chat"], div[class*="chat"], section, main') || document.body;
 
-                                // 2. Identify outgoing messages (yours)
-                                const outgoingMessages = possibleMessages.filter(msg => {
-                                    const style = window.getComputedStyle(msg);
-                                    const className = msg.className.toLowerCase();
-                                    const parentStyle = msg.parentElement ? window.getComputedStyle(msg.parentElement) : {};
+                                // 2. Find all "blue" outgoing bubbles
+                                const allDivs = Array.from(chatArea.querySelectorAll('div'));
+                                const outgoingBubbles = allDivs.filter(div => {
+                                    if (div.innerText.length === 0 || div.innerText.length > 500) return false;
+                                    const style = window.getComputedStyle(div);
                                     
-                                    return className.includes('outgoing') || 
-                                           className.includes('own') ||
-                                           style.justifyContent === 'flex-end' ||
-                                           style.textAlign === 'right' ||
-                                           style.marginLeft.includes('auto') ||
-                                           parentStyle.justifyContent === 'flex-end' ||
-                                           (msg.getAttribute('data-e2e') || '').includes('own');
+                                    // Check for right-alignment
+                                    const isRight = style.justifyContent === 'flex-end' || 
+                                                    style.textAlign === 'right' || 
+                                                    style.float === 'right' ||
+                                                    style.alignSelf === 'flex-end' ||
+                                                    (parseInt(style.marginLeft) > 50 && style.display === 'block');
+                                    
+                                    // Check for a background color (not transparent/white/black)
+                                    const bgColor = style.backgroundColor;
+                                    const isColored = bgColor !== 'rgba(0, 0, 0, 0)' && 
+                                                      bgColor !== 'transparent' && 
+                                                      !bgColor.includes('255, 255, 255') && 
+                                                      !bgColor.includes('rgb(0, 0, 0)');
+                                    
+                                    return isRight && isColored;
                                 });
+
+                                if (outgoingBubbles.length === 0) return false;
+
+                                // 3. Get the very last outgoing message
+                                const lastBubble = outgoingBubbles[outgoingBubbles.length - 1];
                                 
-                                if (outgoingMessages.length > 0) {
-                                    const lastMsg = outgoingMessages[outgoingMessages.length - 1];
-                                    
-                                    // 3. Find any timestamp related text
-                                    const allTextElements = Array.from(lastMsg.parentElement ? lastMsg.parentElement.querySelectorAll('time, span, div') : lastMsg.querySelectorAll('time, span, div'));
-                                    
-                                    for (const el of allTextElements) {
-                                        const text = (el.innerText || '').trim();
-                                        const datetime = (el.getAttribute('datetime') || '').trim();
-                                        
-                                        // Check for 'Today' or today's date
-                                        if (text.toLowerCase().includes('today') || datetime.includes(today_str) || text.includes(today_str)) return true;
-                                        
-                                        // Check for just a time (indicating today)
-                                        // Matches 10:30, 10.30, 10:30 AM, 22:30, etc.
-                                        if (/^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(text)) return true;
+                                // 4. Search BACKWARDS from this bubble to find the nearest timestamp divider
+                                // We look at siblings and parents' siblings
+                                let current = lastBubble;
+                                while (current && current !== chatArea) {
+                                    let sib = current.previousElementSibling;
+                                    while (sib) {
+                                        const text = (sib.innerText || '').trim();
+                                        // If it's a timestamp format
+                                        if (/^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(text) || text.toLowerCase().includes('today') || text.includes(today_str)) {
+                                            return true; // Found today's timestamp divider above our last message!
+                                        }
+                                        if (text.toLowerCase().includes('yesterday') || /^[A-Z][a-z]+ \\d{1,2}/.test(text)) {
+                                            return false; // Found an old date divider above our last message
+                                        }
+                                        sib = sib.previousElementSibling;
                                     }
+                                    current = current.parentElement;
                                 }
-                                
+
                                 return false;
                             }""", today_str)
                         except Exception as e:
