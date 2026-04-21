@@ -85,14 +85,15 @@ def run_automation():
                     # SUPER DEBUG: Only log title and check for blocks
                     title = page.title()
                     logger.info(f"Page Title: {title}")
-                    # [NEW] Check for 'Not Found' or blocks
-                    if "Verify" in title or "CAPTCHA" in title or "Cloudflare" in title:
+                    # [NEW] Check for 'Not Found' or blocks (Robust fuzzy matching)
+                    title_lower = title.lower()
+                    if "verify" in title_lower or "captcha" in title_lower or "cloudflare" in title_lower:
                         logger.error(f"BOT BLOCKED: TikTok is showing a Captcha/Verification screen for {friend}.")
                         page.screenshot(path=f"blocked_{friend}.png")
                         failed_friends.append(friend)
                         continue
                     
-                    if "Couldn't find this account" in title or "not found" in title.lower():
+                    if "find this account" in title_lower or "not found" in title_lower:
                         logger.error(f"PROFILE NOT FOUND: TikTok says the account for '{friend}' does not exist.")
                         page.screenshot(path=f"not_found_{friend}.png")
                         failed_friends.append(friend)
