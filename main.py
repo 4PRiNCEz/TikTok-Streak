@@ -215,56 +215,67 @@ def run_automation():
 
                             # Evaluate JavaScript to inspect chat history robustly
                             already_sent_today = page.evaluate("""(today_str) => {
-                                // 1. Find the chat scroll area
+                                // 1. Find the chat area
                                 const input = document.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]');
                                 if (!input) return false;
                                 const chatArea = input.closest('div[class*="Chat"], div[class*="chat"], section, main') || document.body;
 
-                                // 2. Find all "blue" outgoing bubbles
-                                const allDivs = Array.from(chatArea.querySelectorAll('div'));
-                                const outgoingBubbles = allDivs.filter(div => {
-                                    if (div.innerText.length === 0 || div.innerText.length > 500) return false;
-                                    const style = window.getComputedStyle(div);
-                                    
-                                    // Check for right-alignment
-                                    const isRight = style.justifyContent === 'flex-end' || 
-                                                    style.textAlign === 'right' || 
-                                                    style.float === 'right' ||
-                                                    style.alignSelf === 'flex-end' ||
-                                                    (parseInt(style.marginLeft) > 50 && style.display === 'block');
-                                    
-                                    // Check for a background color (not transparent/white/black)
-                                    const bgColor = style.backgroundColor;
-                                    const isColored = bgColor !== 'rgba(0, 0, 0, 0)' && 
-                                                      bgColor !== 'transparent' && 
-                                                      !bgColor.includes('255, 255, 255') && 
-                                                      !bgColor.includes('rgb(0, 0, 0)');
-                                    
-                                    return isRight && isColored;
-                                });
-
-                                if (outgoingBubbles.length === 0) return false;
-
-                                // 3. Get the very last outgoing message
-                                const lastBubble = outgoingBubbles[outgoingBubbles.length - 1];
+                                // 2. Get ALL elements in the chat area to scan them in DOM order
+                                const allElements = Array.from(chatArea.querySelectorAll('*'));
                                 
-                                // 4. Search BACKWARDS from this bubble to find the nearest timestamp divider
-                                // We look at siblings and parents' siblings
-                                let current = lastBubble;
-                                while (current && current !== chatArea) {
-                                    let sib = current.previousElementSibling;
-                                    while (sib) {
-                                        const text = (sib.innerText || '').trim();
-                                        // If it's a timestamp format
-                                        if (/^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(text) || text.toLowerCase().includes('today') || text.includes(today_str)) {
-                                            return true; // Found today's timestamp divider above our last message!
+                                let lastTimeIndex = -1;
+                                let isToday = false;
+
+                                // 3. Find the LAST timestamp divider
+                                for (let i = 0; i < allElements.length; i++) {
+                                    const el = allElements[i];
+                                    const className = typeof el.className === 'string' ? el.className : '';
+                                    
+                                    // Check if it's a TimeContainer (like the screenshot) or just contains a time string
+                                    const isTimeContainer = className.includes('TimeContainer');
+                                    
+                                    // Check text (only if it's a leaf node to avoid matching the whole chat box)
+                                    if (isTimeContainer || (el.children.length === 0 && el.innerText)) {
+                                        const text = (el.innerText || '').trim();
+                                        const matchesTime = /^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(text);
+                                        const matchesDate = text.toLowerCase().includes('today') || text.includes(today_str);
+                                        
+                                        // If it's a TimeContainer, we trust it. If it's just text, it must match the pattern.
+                                        if (isTimeContainer || matchesTime || matchesDate) {
+                                            lastTimeIndex = i;
+                                            isToday = matchesTime || matchesDate;
                                         }
-                                        if (text.toLowerCase().includes('yesterday') || /^[A-Z][a-z]+ \\d{1,2}/.test(text)) {
-                                            return false; // Found an old date divider above our last message
-                                        }
-                                        sib = sib.previousElementSibling;
                                     }
-                                    current = current.parentElement;
+                                }
+
+                                // If no timestamps were found, or the last one isn't from today, skip
+                                if (lastTimeIndex === -1 || !isToday) return false;
+
+                                // 4. Check elements AFTER the timestamp for ANY outgoing message (Text, Video, etc.)
+                                for (let i = lastTimeIndex + 1; i < allElements.length; i++) {
+                                    const el = allElements[i];
+                                    const style = window.getComputedStyle(el);
+                                    const className = typeof el.className === 'string' ? el.className.toLowerCase() : '';
+                                    
+                                    if (style.display === 'none' || style.visibility === 'hidden') continue;
+                                    
+                                    // Check if the element is right-aligned (how TikTok shows your outgoing messages)
+                                    const isRightAligned = style.justifyContent === 'flex-end' || 
+                                                           style.textAlign === 'right' || 
+                                                           style.float === 'right' ||
+                                                           (parseInt(style.marginLeft) > 50 && style.display === 'block') ||
+                                                           (parseInt(style.marginLeft) > 50 && style.display === 'flex');
+                                                           
+                                    const isOutgoingClass = className.includes('outgoing') || 
+                                                            (el.getAttribute('data-e2e') || '').includes('own');
+                                                            
+                                    // Ensure it's not a full-width structural wrapper
+                                    const rect = el.getBoundingClientRect();
+                                    const isContentSized = rect.width > 0 && rect.width < window.innerWidth * 0.8;
+
+                                    if ((isRightAligned || isOutgoingClass) && isContentSized) {
+                                        return true; // We found an outgoing message AFTER today's timestamp!
+                                    }
                                 }
 
                                 return false;
