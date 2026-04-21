@@ -174,45 +174,8 @@ def run_automation():
                             page.screenshot(path=f"missing_button_{safe_name}_at_{attempt+1}.png")
                             raise Exception("Could not find Message button, link, or User ID")
 
-                        logger.info("Checking if message was already sent today...")
-                        already_sent_today = False
-                        today_str = time.strftime("%Y-%m-%d")
-                        
-                        try:
-                            # Wait for chat message list up to 10 seconds
-                            page.wait_for_selector('[data-e2e="chat-message-list"]', timeout=10000)
-                            
-                            # b. Run page.evaluate() in JavaScript
-                            already_sent_today = page.evaluate("""(today_str) => {
-                                const messages = document.querySelectorAll('[data-e2e="message-item"]');
-                                const outgoingMessages = Array.from(messages).filter(msg => {
-                                    const style = window.getComputedStyle(msg);
-                                    return msg.classList.contains('outgoing') || 
-                                           style.justifyContent === 'flex-end' || 
-                                           (msg.getAttribute('data-e2e') || '').includes('own');
-                                });
-                                
-                                if (outgoingMessages.length === 0) return false;
-                                
-                                const lastMsg = outgoingMessages[outgoingMessages.length - 1];
-                                const timeEl = lastMsg.querySelector('time');
-                                if (!timeEl) return false;
-                                
-                                const timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
-                                return timeText.includes("Today") || timeText.startsWith(today_str);
-                            }""", today_str)
-                        except PlaywrightTimeoutError:
-                            logger.warning(f"History check timed out for {friend} - the chat list did not load in time. Proceeding to send anyway.")
-                        except Exception as e:
-                            logger.warning(f"Failed to check chat history (fail-open): {str(e)}")
-                            
-                        if already_sent_today:
-                            logger.info(f"Skipped {friend} - already sent today")
-                            success_count += 1
-                            break
-
-                        # 2. Wait for chat input and send
-                        time.sleep(random.uniform(8, 12)) # Be more patient
+                        # 2. Wait for chat input to ensure chat has loaded
+                        time.sleep(random.uniform(5, 8)) # Give it some time to load
                         
                         chat_input_selectors = [
                             '[data-e2e="message-input-area"] [contenteditable="true"]',
@@ -222,23 +185,93 @@ def run_automation():
                         ]
                         
                         found_input = False
+                        input_element = None
                         for selector in chat_input_selectors:
                             try:
                                 el = page.locator(selector).first
-                                if el.is_visible(timeout=10000):
-                                    el.focus()
-                                    el.click()
-                                    time.sleep(2)
-                                    page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=200)
-                                    time.sleep(2)
-                                    page.keyboard.press("Enter")
-                                    time.sleep(1)
-                                    page.keyboard.press("Enter") # Double tap
-                                    
+                                if el.is_visible(timeout=5000):
+                                    input_element = el
                                     found_input = True
                                     break
                             except:
                                 continue
+
+                        if not found_input:
+                            logger.info("Input field not found yet. Will try blind typing later.")
+
+                        # --- CHECK HISTORY ONCE CHAT IS OPEN ---
+                        logger.info("Checking if message was already sent today...")
+                        already_sent_today = False
+                        today_str = time.strftime("%Y-%m-%d")
+                        
+                        try:
+                            # Evaluate JavaScript to inspect chat history robustly
+                            already_sent_today = page.evaluate("""(today_str) => {
+                                // 1. Try to find message items by class/attribute
+                                const possibleMessages = Array.from(document.querySelectorAll('[data-e2e="message-item"], div[class*="MessageItem"], div[class*="message-item"]'));
+                                
+                                if (possibleMessages.length > 0) {
+                                    const outgoingMessages = possibleMessages.filter(msg => {
+                                        const style = window.getComputedStyle(msg);
+                                        const className = msg.className.toLowerCase();
+                                        return className.includes('outgoing') || 
+                                               className.includes('own') ||
+                                               style.justifyContent === 'flex-end' ||
+                                               style.flexDirection === 'row-reverse' ||
+                                               (msg.getAttribute('data-e2e') || '').includes('own');
+                                    });
+                                    
+                                    if (outgoingMessages.length > 0) {
+                                        const lastMsg = outgoingMessages[outgoingMessages.length - 1];
+                                        const text = lastMsg.innerText || '';
+                                        if (text.includes('Today') || text.includes(today_str)) return true;
+                                        
+                                        const timeEl = lastMsg.querySelector('time');
+                                        if (timeEl) {
+                                            const timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
+                                            if (timeText.includes('Today') || timeText.startsWith(today_str)) return true;
+                                        }
+                                        
+                                        if (lastMsg.parentElement && (lastMsg.parentElement.innerText.includes('Today') || lastMsg.parentElement.innerText.includes(today_str))) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                                
+                                // 2. Fallback: Check if the visible text on the page indicates we sent our streak today
+                                const bodyText = document.body.innerText;
+                                if (bodyText.includes("เติมไฟกันจ้า") && (bodyText.includes("Today") || bodyText.includes("today") || bodyText.includes(today_str))) {
+                                    return true;
+                                }
+                                
+                                return false;
+                            }""", today_str)
+                        except Exception as e:
+                            logger.warning(f"Failed to check chat history (fail-open): {str(e)}")
+                            
+                        if already_sent_today:
+                            logger.info(f"Skipped {friend} - already sent today")
+                            success_count += 1
+                            break
+
+                        # --- SEND MESSAGE ---
+                        if found_input and input_element:
+                            try:
+                                input_element.focus()
+                                input_element.click()
+                                time.sleep(2)
+                                page.keyboard.type("เติมไฟกันจ้า🔥🔥", delay=200)
+                                time.sleep(2)
+                                page.keyboard.press("Enter")
+                                time.sleep(1)
+                                page.keyboard.press("Enter") # Double tap
+                                
+                                logger.info(f"Successfully sent message to {friend}")
+                                success_count += 1
+                                break
+                            except Exception as e:
+                                logger.warning(f"Failed to type in input field: {str(e)}")
+                                found_input = False # Fallback to blind typing
                         
                         if not found_input:
                             # Blind typing attempt
@@ -250,10 +283,8 @@ def run_automation():
                             time.sleep(1)
                             page.keyboard.press("Enter")
                             page.screenshot(path=f"blind_attempt_{safe_name}.png")
+                            logger.info(f"Successfully sent message to {friend} (Blind Typing)")
                             found_input = True # Assume success for logging
-                        
-                        if found_input:
-                            logger.info(f"Successfully sent message to {friend}")
                             success_count += 1
                             break
                     except Exception as e:
