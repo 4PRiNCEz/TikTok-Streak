@@ -29,7 +29,11 @@ def run_automation():
         with open("friends.txt", "r") as f:
             friends_raw = ",".join([line.strip() for line in f if line.strip()])
             
-    friends = [f.strip() for f in friends_raw.split(",") if f.strip()]
+    # Handle both commas and newlines as separators
+    friends = []
+    if friends_raw:
+        # Replace newlines with commas, then split and strip
+        friends = [f.strip() for f in friends_raw.replace("\n", ",").split(",") if f.strip()]
     
     # COOKIES_JSON should be the content of the cookies file as a string
     cookies_str = os.getenv("TIKTOK_COOKIES")
@@ -85,17 +89,20 @@ def run_automation():
                     # SUPER DEBUG: Only log title and check for blocks
                     title = page.title()
                     logger.info(f"Page Title: {title}")
+                    # Sanitize friend name for filename
+                    safe_name = "".join([c for c in clean_friend if c.isalnum() or c in (" ", "-", "_")]).strip()
+
                     # [NEW] Check for 'Not Found' or blocks (Robust fuzzy matching)
                     title_lower = title.lower()
                     if "verify" in title_lower or "captcha" in title_lower or "cloudflare" in title_lower:
                         logger.error(f"BOT BLOCKED: TikTok is showing a Captcha/Verification screen for {friend}.")
-                        page.screenshot(path=f"blocked_{friend}.png")
+                        page.screenshot(path=f"blocked_{safe_name}.png")
                         failed_friends.append(friend)
                         continue
                     
                     if "find this account" in title_lower or "not found" in title_lower:
                         logger.error(f"PROFILE NOT FOUND: TikTok says the account for '{friend}' does not exist.")
-                        page.screenshot(path=f"not_found_{friend}.png")
+                        page.screenshot(path=f"not_found_{safe_name}.png")
                         failed_friends.append(friend)
                         continue
                 except Exception as e:
@@ -164,7 +171,7 @@ def run_automation():
                                 pass
 
                         if not found_btn:
-                            page.screenshot(path=f"missing_button_{friend}_at_{attempt+1}.png")
+                            page.screenshot(path=f"missing_button_{safe_name}_at_{attempt+1}.png")
                             raise Exception("Could not find Message button, link, or User ID")
 
                         logger.info("Checking if message was already sent today...")
@@ -242,7 +249,7 @@ def run_automation():
                             page.keyboard.press("Enter")
                             time.sleep(1)
                             page.keyboard.press("Enter")
-                            page.screenshot(path=f"blind_attempt_{friend}.png")
+                            page.screenshot(path=f"blind_attempt_{safe_name}.png")
                             found_input = True # Assume success for logging
                         
                         if found_input:
