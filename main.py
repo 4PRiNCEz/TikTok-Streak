@@ -154,6 +154,38 @@ def run_automation():
                             page.screenshot(path=f"missing_button_{friend}_at_{attempt+1}.png")
                             raise Exception("Could not find Message button, link, or User ID")
 
+                        logger.info("Checking if message was already sent today...")
+                        already_sent_today = False
+                        today_str = time.strftime("%Y-%m-%d")
+                        
+                        try:
+                            page.wait_for_selector('[data-e2e="chat-message-list"]', timeout=10000)
+                            already_sent_today = page.evaluate("""(today_str) => {
+                                const messages = document.querySelectorAll('[data-e2e="message-item"]');
+                                const outgoingMessages = Array.from(messages).filter(msg => {
+                                    const style = window.getComputedStyle(msg);
+                                    return msg.classList.contains('outgoing') || 
+                                           style.justifyContent === 'flex-end' || 
+                                           (msg.getAttribute('data-e2e') || '').includes('own');
+                                });
+                                
+                                if (outgoingMessages.length === 0) return false;
+                                
+                                const lastMsg = outgoingMessages[outgoingMessages.length - 1];
+                                const timeEl = lastMsg.querySelector('time');
+                                if (!timeEl) return false;
+                                
+                                const timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
+                                return timeText.includes("Today") || timeText.startsWith(today_str);
+                            }""", today_str)
+                        except Exception as e:
+                            logger.warning(f"Failed to check chat history (fail-open): {str(e)}")
+                            
+                        if already_sent_today:
+                            logger.info(f"Skipped {friend} - already sent today")
+                            success_count += 1
+                            break
+
                         # 2. Wait for chat input and send
                         time.sleep(random.uniform(8, 12)) # Be more patient
                         
