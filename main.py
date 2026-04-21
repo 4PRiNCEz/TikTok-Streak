@@ -226,24 +226,38 @@ def run_automation():
                                         foundOutgoingAfterTime = false; // Reset when we hit a new time divider
                                     } 
                                     else if (className.includes('DivChatItemWrapper')) {
-                                        // Check if this message is outgoing (on the right)
-                                        const style = window.getComputedStyle(el);
-                                        const isRight = style.justifyContent === 'flex-end' || 
-                                                        style.textAlign === 'right' || 
-                                                        style.float === 'right' ||
-                                                        style.alignSelf === 'flex-end' ||
-                                                        className.toLowerCase().includes('outgoing');
+                                        let isOutgoing = false;
                                         
-                                        // Sometimes the wrapper is 100% width, so check its first child too
-                                        let childIsRight = false;
-                                        if (el.children.length > 0) {
-                                            const childStyle = window.getComputedStyle(el.children[0]);
-                                            childIsRight = childStyle.justifyContent === 'flex-end' || 
-                                                           childStyle.float === 'right' ||
-                                                           (parseInt(childStyle.marginLeft) > 50 && childStyle.display.includes('flex'));
+                                        // 1. Check flex-direction row-reverse (TikTok uses this for outgoing!)
+                                        const horizontalContainers = el.querySelectorAll('[class*="DivMessageHorizontalContainer"]');
+                                        for (let i = 0; i < horizontalContainers.length; i++) {
+                                            const hcStyle = window.getComputedStyle(horizontalContainers[i]);
+                                            if (hcStyle.flexDirection === 'row-reverse' || hcStyle.justifyContent === 'flex-end') {
+                                                isOutgoing = true;
+                                            }
                                         }
 
-                                        if (isRight || childIsRight) {
+                                        // 2. Check Avatar visual position (Outgoing avatars are on the right half of screen)
+                                        const avatars = el.querySelectorAll('[data-e2e="chat-avatar"]');
+                                        for (let i = 0; i < avatars.length; i++) {
+                                            if (avatars[i].getBoundingClientRect().left > window.innerWidth / 2) {
+                                                isOutgoing = true;
+                                            }
+                                        }
+
+                                        // 3. Check text bubble visual position
+                                        const textBubble = el.querySelector('[data-e2e="dm-new-message-text"]');
+                                        if (textBubble && textBubble.getBoundingClientRect().left > window.innerWidth / 2) {
+                                            isOutgoing = true;
+                                        }
+
+                                        // 4. Fallback: check the wrapper itself
+                                        const style = window.getComputedStyle(el);
+                                        if (style.justifyContent === 'flex-end' || style.textAlign === 'right' || style.float === 'right') {
+                                            isOutgoing = true;
+                                        }
+
+                                        if (isOutgoing) {
                                             foundOutgoingAfterTime = true;
                                         }
                                     }
