@@ -201,55 +201,56 @@ def run_automation():
 
                         # --- CHECK HISTORY ONCE CHAT IS OPEN ---
                         logger.info("Checking if message was already sent today...")
+                        page.screenshot(path=f"debug_chat_{safe_name}.png") # [DEBUG] See what the bot sees
+                        
                         already_sent_today = False
                         today_str = time.strftime("%Y-%m-%d")
                         
                         try:
+                            # Wait for at least one message or a timeout
+                            try:
+                                page.wait_for_selector('[data-e2e="message-item"], div[class*="MessageItem"], div[class*="message-item"]', timeout=5000)
+                            except:
+                                logger.info("No messages found in chat history yet.")
+
                             # Evaluate JavaScript to inspect chat history robustly
                             already_sent_today = page.evaluate("""(today_str) => {
-                                // 1. Try to find message items by class/attribute
-                                const possibleMessages = Array.from(document.querySelectorAll('[data-e2e="message-item"], div[class*="MessageItem"], div[class*="message-item"]'));
+                                // 1. Find all potential message containers
+                                const possibleMessages = Array.from(document.querySelectorAll('[data-e2e="message-item"], div[class*="MessageItem"], div[class*="message-item"], div[class*="chat-message"]'));
                                 
-                                if (possibleMessages.length > 0) {
-                                    const outgoingMessages = possibleMessages.filter(msg => {
-                                        const style = window.getComputedStyle(msg);
-                                        const className = msg.className.toLowerCase();
-                                        return className.includes('outgoing') || 
-                                               className.includes('own') ||
-                                               style.justifyContent === 'flex-end' ||
-                                               style.flexDirection === 'row-reverse' ||
-                                               (msg.getAttribute('data-e2e') || '').includes('own');
-                                    });
+                                if (possibleMessages.length === 0) return false;
+
+                                // 2. Identify outgoing messages (yours)
+                                const outgoingMessages = possibleMessages.filter(msg => {
+                                    const style = window.getComputedStyle(msg);
+                                    const className = msg.className.toLowerCase();
+                                    const parentStyle = msg.parentElement ? window.getComputedStyle(msg.parentElement) : {};
                                     
-                                    if (outgoingMessages.length > 0) {
-                                        const lastMsg = outgoingMessages[outgoingMessages.length - 1];
+                                    return className.includes('outgoing') || 
+                                           className.includes('own') ||
+                                           style.justifyContent === 'flex-end' ||
+                                           style.textAlign === 'right' ||
+                                           style.marginLeft.includes('auto') ||
+                                           parentStyle.justifyContent === 'flex-end' ||
+                                           (msg.getAttribute('data-e2e') || '').includes('own');
+                                });
+                                
+                                if (outgoingMessages.length > 0) {
+                                    const lastMsg = outgoingMessages[outgoingMessages.length - 1];
+                                    
+                                    // 3. Find any timestamp related text
+                                    const allTextElements = Array.from(lastMsg.parentElement ? lastMsg.parentElement.querySelectorAll('time, span, div') : lastMsg.querySelectorAll('time, span, div'));
+                                    
+                                    for (const el of allTextElements) {
+                                        const text = (el.innerText || '').trim();
+                                        const datetime = (el.getAttribute('datetime') || '').trim();
                                         
-                                        // Look for a time element inside the message
-                                        const timeEl = lastMsg.querySelector('time, [class*="time"], [class*="Time"]');
-                                        let timeText = "";
-                                        let innerText = "";
+                                        // Check for 'Today' or today's date
+                                        if (text.toLowerCase().includes('today') || datetime.includes(today_str) || text.includes(today_str)) return true;
                                         
-                                        if (timeEl) {
-                                            timeText = (timeEl.getAttribute('datetime') || timeEl.innerText || '').trim();
-                                            innerText = (timeEl.innerText || '').trim();
-                                        } else if (lastMsg.previousElementSibling) {
-                                            // TikTok sometimes puts the timestamp in a divider above the message
-                                            const prevText = (lastMsg.previousElementSibling.innerText || '').trim();
-                                            if (prevText.length < 25 && /\d/.test(prevText)) {
-                                                timeText = prevText;
-                                                innerText = prevText;
-                                            }
-                                        }
-                                        
-                                        if (timeText || innerText) {
-                                            // Check 1: Explicit 'Today' or exact YYYY-MM-DD
-                                            if (timeText.toLowerCase().includes('today') || timeText.includes(today_str)) return true;
-                                            
-                                            // Check 2: If the text is JUST a time (e.g., "10:30 AM", "14:20"), TikTok Web means it is from Today.
-                                            // Older messages show "Yesterday 10:30 PM" or "11/04 14:20"
-                                            const timeRegex = /^\\d{1,2}:\\d{2}(?:\\s?[AaPp][Mm])?$/;
-                                            if (timeRegex.test(innerText)) return true;
-                                        }
+                                        // Check for just a time (indicating today)
+                                        // Matches 10:30, 10.30, 10:30 AM, 22:30, etc.
+                                        if (/^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(text)) return true;
                                     }
                                 }
                                 
