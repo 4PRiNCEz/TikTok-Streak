@@ -207,61 +207,34 @@ def run_automation():
                         today_str = time.strftime("%Y-%m-%d")
                         
                         try:
-                            # Scroll chat up to load older messages that may be off-screen
-                            # (e.g. if friend spammed 20+ messages after your last one)
-                            for scroll_attempt in range(5):
-                                page.evaluate("""() => {
-                                    const chatScroll = document.querySelector('[class*="DivChatMessageList"], [class*="DivMessageListContainer"]');
-                                    if (chatScroll) {
-                                        chatScroll.scrollTop = 0;
-                                    } else {
-                                        // Fallback: scroll the main chat area
-                                        const input = document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
-                                        if (input) {
-                                            const chatArea = input.closest('div[class*="Chat"], div[class*="chat"], section, main');
-                                            if (chatArea) chatArea.scrollTop = 0;
-                                        }
-                                    }
-                                }""")
-                                time.sleep(0.5)
+                            # TikTok uses virtual scrolling - only visible messages are in the DOM.
+                            # We scroll up step-by-step, checking at each position, to find our outgoing message.
+                            result_str = "SEND: No timestamps found in chat."
                             
-                            # Now scroll back to bottom so we see everything
-                            page.evaluate("""() => {
-                                const chatScroll = document.querySelector('[class*="DivChatMessageList"], [class*="DivMessageListContainer"]');
-                                if (chatScroll) {
-                                    chatScroll.scrollTop = chatScroll.scrollHeight;
-                                }
-                            }""")
-                            time.sleep(1)
-
-                            # Evaluate JavaScript with detailed diagnostic return using specific TikTok classes
-                            result_str = input_element.evaluate("""(input, today_str) => {
-                                // 1. Find all timestamps and messages in order using specific TikTok classes
+                            js_check = """(today_str) => {
                                 const allElements = Array.from(document.querySelectorAll('[class*="DivTimeContainer"], [class*="DivChatItemWrapper"]'));
                                 
-                                if (allElements.length === 0) return "DEBUG: No TimeContainers or ChatItemWrappers found.";
+                                if (allElements.length === 0) return "CONTINUE: No elements found yet.";
 
-                                let lastTimeText = null;
                                 let everFoundTodayTimestamp = false;
                                 let everFoundOutgoingToday = false;
                                 let currentSectionIsToday = false;
+                                let oldestTimestamp = null;
 
-                                // 2. Iterate through them in DOM order
                                 for (const el of allElements) {
                                     const className = el.className || '';
                                     
                                     if (className.includes('DivTimeContainer')) {
-                                        lastTimeText = (el.innerText || '').trim();
-                                        // Check if this timestamp is from today
-                                        const isTime = /^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(lastTimeText);
-                                        const hasToday = lastTimeText.toLowerCase().includes('today') || lastTimeText.includes(today_str);
+                                        const timeText = (el.innerText || '').trim();
+                                        if (!oldestTimestamp) oldestTimestamp = timeText;
+                                        const isTime = /^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(timeText);
+                                        const hasToday = timeText.toLowerCase().includes('today') || timeText.includes(today_str);
                                         currentSectionIsToday = isTime || hasToday;
                                         if (currentSectionIsToday) everFoundTodayTimestamp = true;
                                     } 
                                     else if (className.includes('DivChatItemWrapper') && currentSectionIsToday) {
                                         let isOutgoing = false;
                                         
-                                        // 1. Check flex-direction row-reverse (TikTok uses this for outgoing!)
                                         const horizontalContainers = el.querySelectorAll('[class*="DivMessageHorizontalContainer"]');
                                         for (let i = 0; i < horizontalContainers.length; i++) {
                                             const hcStyle = window.getComputedStyle(horizontalContainers[i]);
@@ -270,7 +243,6 @@ def run_automation():
                                             }
                                         }
 
-                                        // 2. Check Avatar visual position (Outgoing avatars are on the right half of screen)
                                         const avatars = el.querySelectorAll('[data-e2e="chat-avatar"]');
                                         for (let i = 0; i < avatars.length; i++) {
                                             if (avatars[i].getBoundingClientRect().left > window.innerWidth / 2) {
@@ -278,37 +250,68 @@ def run_automation():
                                             }
                                         }
 
-                                        // 3. Check text bubble visual position
                                         const textBubble = el.querySelector('[data-e2e="dm-new-message-text"]');
                                         if (textBubble && textBubble.getBoundingClientRect().left > window.innerWidth / 2) {
                                             isOutgoing = true;
                                         }
 
-                                        // 4. Fallback: check the wrapper itself
                                         const style = window.getComputedStyle(el);
                                         if (style.justifyContent === 'flex-end' || style.textAlign === 'right' || style.float === 'right') {
                                             isOutgoing = true;
                                         }
 
                                         if (isOutgoing) {
-                                            everFoundOutgoingToday = true;  // Once found, stays true forever
+                                            everFoundOutgoingToday = true;
                                         }
                                     }
                                 }
-
-                                // 3. Evaluate the results
-                                if (!lastTimeText) return "SEND: No timestamps found in chat.";
 
                                 if (everFoundOutgoingToday) {
                                     return "SKIP: Found outgoing message under a today timestamp.";
                                 }
                                 
-                                if (everFoundTodayTimestamp && !everFoundOutgoingToday) {
-                                    return "SEND: Found today's timestamps, but no outgoing messages from you.";
+                                // Check if the oldest visible timestamp is NOT from today — means we've scrolled past all today's messages
+                                if (oldestTimestamp) {
+                                    const isOldTime = /^\\d{1,2}[:.]\\d{2}/.test(oldestTimestamp) === false && 
+                                                      !oldestTimestamp.toLowerCase().includes('today') && 
+                                                      !oldestTimestamp.includes(today_str);
+                                    if (isOldTime && everFoundTodayTimestamp) {
+                                        return "SEND: Scrolled through all today's messages, no outgoing found.";
+                                    }
                                 }
-
-                                return "SEND: Last timestamp is old: " + lastTimeText;
-                            }""", today_str)
+                                
+                                if (everFoundTodayTimestamp) {
+                                    return "CONTINUE: Today's messages visible but no outgoing yet, scroll more.";
+                                }
+                                
+                                return "SEND: No today timestamps found.";
+                            }"""
+                            
+                            # First check at current scroll position (bottom of chat)
+                            result_str = page.evaluate(js_check, today_str)
+                            logger.info(f"Scroll check 0: {result_str}")
+                            
+                            if result_str.startswith("CONTINUE"):
+                                # Scroll up incrementally to find our outgoing message
+                                for scroll_i in range(10):
+                                    page.evaluate("""() => {
+                                        const containers = document.querySelectorAll('[class*="DivChatMessageList"], [class*="DivMessageListContainer"], [class*="DivChatList"]');
+                                        for (const c of containers) {
+                                            if (c.scrollHeight > c.clientHeight) {
+                                                c.scrollTop = Math.max(0, c.scrollTop - 500);
+                                                return;
+                                            }
+                                        }
+                                        // Fallback: scroll using mouse wheel on the chat area
+                                        window.scrollBy(0, -500);
+                                    }""")
+                                    time.sleep(1)
+                                    
+                                    result_str = page.evaluate(js_check, today_str)
+                                    logger.info(f"Scroll check {scroll_i + 1}: {result_str}")
+                                    
+                                    if not result_str.startswith("CONTINUE"):
+                                        break
                             
                             logger.info(f"History Check Result: {result_str}")
                             already_sent_today = result_str.startswith("SKIP")
