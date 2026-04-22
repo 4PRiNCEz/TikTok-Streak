@@ -214,16 +214,22 @@ def run_automation():
                                 
                                 if (allElements.length === 0) return "DEBUG: No TimeContainers or ChatItemWrappers found.";
 
-                                let lastTimeText = null;
-                                let foundOutgoingAfterTime = false;
+                                let anyTimeText = null;
+                                let currentBlockIsToday = false;
+                                let sentToday = false;
 
                                 // 2. Iterate through them in DOM order
                                 for (const el of allElements) {
                                     const className = el.className || '';
                                     
                                     if (className.includes('DivTimeContainer')) {
-                                        lastTimeText = (el.innerText || '').trim();
-                                        foundOutgoingAfterTime = false; // Reset when we hit a new time divider
+                                        anyTimeText = (el.innerText || '').trim();
+                                        
+                                        // Check if this specific time block is "Today". 
+                                        // Time-only format indicates today on TikTok Web.
+                                        currentBlockIsToday = /^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(anyTimeText) || 
+                                                              anyTimeText.toLowerCase().includes('today') || 
+                                                              anyTimeText.includes(today_str);
                                     } 
                                     else if (className.includes('DivChatItemWrapper')) {
                                         let isOutgoing = false;
@@ -257,29 +263,21 @@ def run_automation():
                                             isOutgoing = true;
                                         }
 
-                                        if (isOutgoing) {
-                                            foundOutgoingAfterTime = true;
+                                        // If this message is outgoing AND we are currently under a "Today" timestamp
+                                        if (isOutgoing && currentBlockIsToday) {
+                                            sentToday = true;
                                         }
                                     }
                                 }
 
-                                // 3. Evaluate the results based on the last timestamp seen
-                                if (!lastTimeText) return "SEND: No timestamps found in chat.";
+                                // 3. Evaluate the final results
+                                if (!anyTimeText) return "SEND: No timestamps found in chat.";
                                 
-                                // Check if it's "Today". Time-only format indicates today on TikTok Web.
-                                const isToday = /^\\d{1,2}[:.]\\d{2}(?:\\s?[AaPp][Mm])?$/.test(lastTimeText) || 
-                                                lastTimeText.toLowerCase().includes('today') || 
-                                                lastTimeText.includes(today_str);
-
-                                if (isToday && foundOutgoingAfterTime) {
-                                    return "SKIP: Found outgoing message under today's timestamp: " + lastTimeText;
+                                if (sentToday) {
+                                    return "SKIP: Found an outgoing message under a 'today' timestamp.";
                                 }
                                 
-                                if (isToday && !foundOutgoingAfterTime) {
-                                    return "SEND: Found today's timestamp, but no outgoing message under it.";
-                                }
-
-                                return "SEND: Last timestamp is old: " + lastTimeText;
+                                return "SEND: Found timestamps, but no outgoing message sent today.";
                             }""", today_str)
                             
                             logger.info(f"History Check Result: {result_str}")
