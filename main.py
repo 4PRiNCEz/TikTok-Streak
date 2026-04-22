@@ -293,19 +293,19 @@ def run_automation():
                             
                             if result_str.startswith("CONTINUE"):
                                 # Scroll up incrementally to find our outgoing message
-                                for scroll_i in range(10):
-                                    page.evaluate("""() => {
-                                        const containers = document.querySelectorAll('[class*="DivChatMessageList"], [class*="DivMessageListContainer"], [class*="DivChatList"]');
-                                        for (const c of containers) {
-                                            if (c.scrollHeight > c.clientHeight) {
-                                                c.scrollTop = Math.max(0, c.scrollTop - 500);
-                                                return;
-                                            }
-                                        }
-                                        // Fallback: scroll using mouse wheel on the chat area
-                                        window.scrollBy(0, -500);
-                                    }""")
-                                    time.sleep(1)
+                                # Use mouse wheel to scroll up - much more reliable than guessing container class names
+                                # Position mouse over the chat area (center of page, slightly above the input)
+                                input_box = input_element.bounding_box()
+                                if input_box:
+                                    scroll_x = input_box['x'] + input_box['width'] / 2
+                                    scroll_y = input_box['y'] - 200  # Above the input, in the message area
+                                else:
+                                    scroll_x = 600
+                                    scroll_y = 400
+                                
+                                for scroll_i in range(30):  # Keep scrolling until we hit non-today
+                                    page.mouse.wheel(delta_x=0, delta_y=-500)  # Scroll UP
+                                    time.sleep(0.8)
                                     
                                     result_str = page.evaluate(js_check, today_str)
                                     logger.info(f"Scroll check {scroll_i + 1}: {result_str}")
