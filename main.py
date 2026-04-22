@@ -207,6 +207,33 @@ def run_automation():
                         today_str = time.strftime("%Y-%m-%d")
                         
                         try:
+                            # Scroll chat up to load older messages that may be off-screen
+                            # (e.g. if friend spammed 20+ messages after your last one)
+                            for scroll_attempt in range(5):
+                                page.evaluate("""() => {
+                                    const chatScroll = document.querySelector('[class*="DivChatMessageList"], [class*="DivMessageListContainer"]');
+                                    if (chatScroll) {
+                                        chatScroll.scrollTop = 0;
+                                    } else {
+                                        // Fallback: scroll the main chat area
+                                        const input = document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
+                                        if (input) {
+                                            const chatArea = input.closest('div[class*="Chat"], div[class*="chat"], section, main');
+                                            if (chatArea) chatArea.scrollTop = 0;
+                                        }
+                                    }
+                                }""")
+                                time.sleep(0.5)
+                            
+                            # Now scroll back to bottom so we see everything
+                            page.evaluate("""() => {
+                                const chatScroll = document.querySelector('[class*="DivChatMessageList"], [class*="DivMessageListContainer"]');
+                                if (chatScroll) {
+                                    chatScroll.scrollTop = chatScroll.scrollHeight;
+                                }
+                            }""")
+                            time.sleep(1)
+
                             # Evaluate JavaScript with detailed diagnostic return using specific TikTok classes
                             result_str = input_element.evaluate("""(input, today_str) => {
                                 // 1. Find all timestamps and messages in order using specific TikTok classes
